@@ -1,0 +1,63 @@
+/* Benri PWA Service Worker
+   - install: 必要ファイルを事前キャッシュ
+   - activate: 古いキャッシュ掃除
+   - fetch: Cache First + ネットワークフォールバック
+   Service Worker の基本ライフサイクル（install/activate/fetch）はMDN参照。[3](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers)[4](https://zenn.dev/peter_norio/articles/2896d638dece0e)
+*/
+const CACHE_NAME = "benri-premium-v1";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./manifest.webmanifest",
+  "./sw.js",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/maskable-192.png",
+  "./icons/maskable-512.png"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  // GETだけ対象（POST等は触らない）
+  if (req.method !== "GET") return;
+
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+
+      return fetch(req)
+        .then((res) => {
+          // 同一オリジンのみ動的キャッシュ（安全寄り）
+          try {
+            const url = new URL(req.url);
+            if (url.origin === self.location.origin) {
+              const copy = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            }
+          } catch {}
+          return res;
+        })
+        .catch(() => {
+          // オフライン時のフォールバック
+          // SPA/単一ページなので index.html を返す
+          return caches.match("./index.html");
+        });
+    })
+  );
+});
+``
